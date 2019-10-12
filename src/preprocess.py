@@ -1,10 +1,15 @@
-import os
 import pandas as pd
-import numpy as np
 import random
 import gc
 import time
 from tqdm import tqdm
+import gc
+import random
+import time
+
+import pandas as pd
+from tqdm import tqdm
+
 
 def parse_rawdata():
     #曝光日志
@@ -18,6 +23,7 @@ def parse_rawdata():
     #静态广告
     df =pd.read_csv('data/testA/ad_static_feature.out', sep='\t', names=['aid','create_timestamp','advertiser','good_id','good_type','ad_type_id','ad_size']).sort_values(by='create_timestamp')
     df=df.fillna(-1)
+    #转成int类型，不能转成int的置-1
     for f in ['aid','create_timestamp','advertiser','good_id','good_type','ad_type_id']:
         items=[]
         for item in df[f].values:
@@ -27,7 +33,7 @@ def parse_rawdata():
                 items.append(-1)
         df[f]=items
         df[f]=df[f].astype(int)
-    df['ad_size']=df['ad_size'].apply(lambda x:' '.join([str(int(float(y))) for y in str(x).split(',')]))    
+    df['ad_size']=df['ad_size'].apply(lambda x:' '.join([str(int(float(y))) for y in str(x).split(',')]))   ##ad_size字段有逗号
     df.to_pickle('data/testA/ad_static_feature.pkl')
     del df
     gc.collect()
@@ -68,14 +74,23 @@ def construct_log():
     train_df['hour']=hour
     train_df['minute']=minute
     train_df['period_id']=train_df['hour']*2+train_df['minute']//30
+
+    # dev_df: = 17974
     dev_df=train_df[train_df['request_day']==17974]
     del dev_df['period_id']
     del dev_df['minute']
     del dev_df['hour']
+
     log=train_df
     tmp = pd.DataFrame(train_df.groupby(['aid','request_day']).size()).reset_index()
     tmp.columns=['aid','request_day','imp']
     log=log.merge(tmp,on=['aid','request_day'],how='left')
+
+    # todo. 这两个pkl在extract_feature中使用
+    # user_log_dev: < 17973, user_log_test: all (加列imp)
+    # ['id', 'request_timestamp', 'position', 'uid', 'aid', 'imp_ad_size',
+    #        'bid', 'pctr', 'quality_ecpm', 'totalEcpm', 'request_day', 'wday',
+    #        'hour', 'minute', 'period_id', 'imp']
     log[log['request_day']<17973].to_pickle('data/user_log_dev.pkl')
     log.to_pickle('data/user_log_test.pkl')
     del log
@@ -83,7 +98,9 @@ def construct_log():
     gc.collect()
     del train_df['period_id']
     del train_df['minute']
-    del train_df['hour']    
+    del train_df['hour']
+    # train_df: all, dev_df: = 17974
+    # ['id','request_timestamp','position','uid','aid','imp_ad_size','bid','pctr','quality_ecpm','totalEcpm',  'request_day','wday']
     return train_df,dev_df
     
 def extract_setting():
@@ -125,14 +142,14 @@ def extract_setting():
 def construct_train_data(train_df):
     #构造训练集
     #算出广告当天平均出价和曝光量
-    tmp = pd.DataFrame(train_df.groupby(['aid','request_day'])['bid'].nunique()).reset_index()
+    tmp = pd.DataFrame(train_df.groupby(['aid','request_day'])['bid'].nunique()).reset_index()# 唯一值个数
     tmp.columns=['aid','request_day','bid_unique']
     train_df=train_df.merge(tmp,on=['aid','request_day'],how='left')
-    tmp = pd.DataFrame(train_df.groupby(['aid','request_day']).size()).reset_index()
-    tmp_1 = pd.DataFrame(train_df.groupby(['aid','request_day'])['bid'].mean()).reset_index()
+    tmp = pd.DataFrame(train_df.groupby(['aid','request_day']).size()).reset_index()# tmp 加广告每天展现量
+    tmp_1 = pd.DataFrame(train_df.groupby(['aid','request_day'])['bid'].mean()).reset_index() # tmp_1 加广告每天平均出价
     tmp.columns=['aid','request_day','imp']
     del train_df['bid']
-    tmp_1.columns=['aid','request_day','bid']
+    tmp_1.columns=['aid','request_day','bid'] # bid属性变成平均出价
     train_df=train_df.drop_duplicates(['aid','request_day'])
     train_df=train_df.merge(tmp,on=['aid','request_day'],how='left')
     train_df=train_df.merge(tmp_1,on=['aid','request_day'],how='left')
@@ -140,7 +157,7 @@ def construct_train_data(train_df):
     del tmp_1
     gc.collect()
     #去重，得到训练集
-    train_df=train_df.drop_duplicates(['aid','request_day'])
+    train_df=train_df.drop_duplicates(['aid','request_day']) # train_df: 加列广告每天展现量，平均出价,去重
     del train_df['request_timestamp']
     del train_df['uid']
 
@@ -160,6 +177,8 @@ def construct_train_data(train_df):
     train_dev_df=train_df[train_df['request_day']<17973]
     print(train_df.shape,train_dev_df.shape)
     print(train_df['imp'].mean(),train_df['bid'].mean())
+
+    # train_df: all, train_dev_df: < 17973
     return train_df,train_dev_df
 
 def construct_dev_data(dev_df):
@@ -180,9 +199,9 @@ def construct_dev_data(dev_df):
                 aids.add(int(line[0]))
             exit_aids.add(int(line[0]))
     dev_df['is']=dev_df['aid'].apply(lambda x: x in aids)
-    dev_df=dev_df[dev_df['is']==False]
+    dev_df=dev_df[dev_df['is']==False] # 去掉17974那天有操作的广告
     dev_df['is']=dev_df['aid'].apply(lambda x: x in exit_aids)
-    dev_df=dev_df[dev_df['is']==True]
+    dev_df=dev_df[dev_df['is']==True]  # 去掉未出现在操作日志的广告 (只保留有操作的广告)
     #过滤当天出价不唯一的广告
     tmp = pd.DataFrame(dev_df.groupby('aid')['bid'].nunique()).reset_index()
     tmp.columns=['aid','bid_unique']
@@ -193,7 +212,7 @@ def construct_dev_data(dev_df):
     tmp.columns=['aid','imp']
     dev_df=dev_df.merge(tmp,on='aid',how='left')
     dev_df=dev_df.drop_duplicates('aid')
-    #过滤未出现在广告操作文件的广告
+    #过滤未出现在广告操作文件的广告 (其实上面已经过滤掉了未出现在操作日志的广告，这里是想获取定向、投放时段等属性)
     ad_df=extract_setting()
     ad_df=ad_df.drop_duplicates(['aid'],keep='last')
     dev_df=dev_df.merge(ad_df,on='aid',how='left')
@@ -230,26 +249,40 @@ parse_rawdata()
 
 print("construct log ....")
 train_df,dev_df=construct_log()
+# train_df: all, dev_df: = 17974 加天、时等属性(另带imp展现量的pkl保存到磁盘)
+# ['id', 'request_timestamp', 'position', 'uid', 'aid', 'imp_ad_size',
+#        'bid', 'pctr', 'quality_ecpm', 'totalEcpm', 'request_day', 'wday']
 
 print("construct train data ....")
 train_df,train_dev_df=construct_train_data(train_df)
+# train_df      : all,
+# train_dev_df  : < 17973 加每天展现量，平均出价属性，过滤未出现在操作文件的广告，过滤展现量和出价过大的广告
+# ['id', 'position', 'aid', 'imp_ad_size', 'pctr', 'quality_ecpm',
+#        'totalEcpm', 'request_day', 'wday', 'bid_unique', 'imp', 'bid',
+#        'crowd_direction', 'delivery_periods', 'is']
 
 print("construct dev data ....")
 dev_df=construct_dev_data(dev_df)
+# dev_df: = 17974
+# ['aid', 'bid', 'crowd_direction', 'delivery_periods', 'imp', 'gold'], 只保留有操作且操作不在当天的广告
 
 print("load test data ....")
 test_df=pd.read_pickle('data/testA/test_sample.pkl')
+# ['id', 'aid', 'create_timestamp', 'ad_size', 'ad_type_id', 'good_type',
+#        'good_id', 'advertiser', 'delivery_periods', 'crowd_direction', 'bid']
 
 print("combine advertise features ....")
 ad_df =pd.read_pickle('data/testA/ad_static_feature.pkl')
+
+
 train_df=train_df.merge(ad_df,on='aid',how='left')
 train_dev_df=train_dev_df.merge(ad_df,on='aid',how='left')
 dev_df=dev_df.merge(ad_df,on='aid',how='left')
 
 print("save preprocess data ....")
-train_dev_df.to_pickle('data/train_dev.pkl')
-train_df.to_pickle('data/train.pkl')
-dev_df.to_pickle('data/dev.pkl')
-test_df.to_pickle('data/test.pkl')
+train_df.to_pickle('data/train.pkl')            # all
+train_dev_df.to_pickle('data/train_dev.pkl')    # < 17973
+dev_df.to_pickle('data/dev.pkl')                # = 17974
+test_df.to_pickle('data/test.pkl')              # 第n+1天待预估广告
 print(train_dev_df.shape,dev_df.shape)
 print(train_df.shape,test_df.shape)

@@ -515,21 +515,49 @@ def kfold_static(train_df,test_df,f,label):
     
     
     
-if __name__ == "__main__":    
+if __name__ == "__main__":
+    ######
+    # ['id', 'position', 'aid', 'imp_ad_size', 'pctr', 'quality_ecpm',
+    #        'totalEcpm', 'request_day', 'wday', 'bid_unique', 'imp', 'bid',
+    #        'crowd_direction', 'delivery_periods', 'is', 'create_timestamp',
+    #        'advertiser', 'good_id', 'good_type', 'ad_type_id', 'ad_size']
+    ###### 加每天展现量，平均出价属性，过滤未出现在操作文件中的广告，过滤展现量和出价过大的广告, merge广告静态属性
+    # train_dev.pkl:        < 17973
+    # train.pkl:            all
+
+    ######
+    # [       'aid', 'bid', 'crowd_direction', 'delivery_periods',
+    #         'create_timestamp', 'advertiser', 'good_id', 'good_type', 'ad_type_id',
+    #         'ad_size', 'gold', 'imp']
+    ### 17974的展现日志去掉当天有操作的广告,去掉未出现在操作日志中的广告，去掉当天出价不唯一的广告，统计当天广告曝光量，过滤未出现在广告操作文件的广告，merge广告静态属性
+    # dev.pkl:              = 17974
+    # ['id',  'aid', 'bid', 'crowd_direction', 'delivery_periods',
+    #         'create_timestamp', 'advertiser', 'good_id', 'good_type', 'ad_type_id',
+    #         'ad_size']
+    # test.pkl:             = 第n+1天待预估广告
+
+    ######
+    # ['id', 'request_timestamp', 'position', 'uid', 'aid', 'imp_ad_size',
+    #        'bid', 'pctr', 'quality_ecpm', 'totalEcpm', 'request_day', 'wday',
+    #        'hour', 'minute', 'period_id', 'imp']
+    ###### 展现log
+    # user_log_dev.pkl:     < 17973
+    # user_log_test.pkl:    all
+
+    #                                                   < 17973             = 17974         < 17973                                 all             第n+1天           all
     for path1,path2,log_path,flag,wday,day in [('data/train_dev.pkl','data/dev.pkl','data/user_log_dev.pkl','dev',1,17974),('data/train.pkl','data/test.pkl','data/user_log_test.pkl','test',3,17976)]:
             ##拼接静态特征
             print(path1,path2,log_path,flag)
-            train_df=pd.read_pickle(path1)
-            test_df=pd.read_pickle(path2)
-            log=pd.read_pickle(log_path)
+            train_df=pd.read_pickle(path1)  # train_dev.pkl:    < 17973     train.pkl:          all
+            test_df=pd.read_pickle(path2)   # data/dev.pkl:     = 17974     test.pkl:           第n+1天
+            log=pd.read_pickle(log_path)    # user_log_dev.pkl: < 17973     user_log_test.pkl:  all
             print(train_df.shape,test_df.shape,log.shape)
             df =pd.read_pickle('data/testA/ad_static_feature.pkl')
             log=log.merge(df,on='aid',how='left')
             del df
             gc.collect()
             print(train_df.shape,test_df.shape,log.shape)
-       
-            
+
             #提取特征
             
             #人群定向
@@ -572,7 +600,7 @@ if __name__ == "__main__":
             train_df,test_df=get_agg_features(train_df,test_df,["aid"],'aid',"size") 
             #保存数据
             print(train_df.shape,test_df.shape,log.shape)
-            train_df.to_pickle(path1) 
+            train_df.to_pickle(path1)       # 覆盖原pkl
             test_df.to_pickle(path2)  
             print(list(train_df))
             print("*"*80)
